@@ -21,6 +21,11 @@ int max(int x, int y)
   return x - ((x - y) & ((x - y) >> 8));
 }
 
+//from http://graphics.stanford.edu/~seander/bithacks.html
+bool sign(signed int x) {
+    return (bool)(x >> (sizeof(int) * 8 - 1));
+}
+
 class Map{
     private:
       unsigned char* grid;
@@ -155,7 +160,7 @@ class Game{
             // death_penalty
             reward -= death_penalty;
 
-            reset(); //std::cout << "dead" << "\n";
+            reset();
         } else {
             *snake.head = 1;
         }
@@ -179,7 +184,7 @@ class Game{
         ++ticker;
       }
 
-      unsigned int get_reward() {
+      signed int get_reward() {
         signed int m_reward = this->reward - this->last_reward;
         this->last_reward = this->reward;
 
@@ -212,11 +217,19 @@ class GameWrapper : public Game {
     const p::object own;
 
   public:
-    //TODO: use python values and return game_map, reward, done, meta
-    void step(unsigned int action) {
+    p::tuple step(unsigned int action) {
       Game::step(action);
-      np::from_data(Game::get_map(), dt, shape, stride, own);
-      Game::get_reward();
+
+      np::ndarray obs = np::from_data(Game::get_map(), dt, shape, stride, own);
+      signed int reward = Game::get_reward();
+
+      return p::make_tuple(obs, reward, sign(reward), 0);
+    }
+
+    np::ndarray reset() {
+      Game::reset();
+
+      return np::from_data(Game::get_map(), dt, shape, stride, own);
     }
 };
 
