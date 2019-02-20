@@ -21,6 +21,21 @@ int max(int x, int y)
   return x - ((x - y) & ((x - y) >> 8));
 }
 
+// this could potentially be made faster
+unsigned int argmax(double* ptr, unsigned int length) {
+  double m = *ptr;
+  unsigned int idx = 0;
+
+  for(unsigned int x = 1; x < length; ++x) {
+    if(m < *++ptr) {
+      m = *ptr;
+      idx = x;
+    }
+  }
+
+  return idx;
+}
+
 //from http://graphics.stanford.edu/~seander/bithacks.html
 bool sign(signed int x) {
     return (bool)(x >> (sizeof(int) * 8 - 1));
@@ -217,7 +232,9 @@ class GameWrapper : public Game {
     const p::object own;
 
   public:
-    p::tuple step(unsigned int action) {
+    p::tuple step(np::ndarray __action) {
+      unsigned int action = argmax((double*)__action.get_data(), 4);
+
       Game::step(action);
 
       np::ndarray obs = np::from_data(Game::get_map(), dt, shape, stride, own);
