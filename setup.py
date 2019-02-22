@@ -13,4 +13,8 @@ setup(name='Snake',
       description='Snake',
       package_dir={'': 'src'},
       packages=['Snake'],
+      install_requires=[
+          'numpy',
+          'gym'
+      ],
       ext_modules=[_C])
