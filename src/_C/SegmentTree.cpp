@@ -52,7 +52,7 @@ class AppendableSegmentTree {
       return res; 
     } 
 
-    T find(T value) {
+    unsigned int find(T value) {
       unsigned int i = 1;
 
       for (; i < (2*n); i<<=1) {
@@ -62,11 +62,15 @@ class AppendableSegmentTree {
         }
       }
 
-      return tree[i>>1];
+      return (i>>1);
     }
     
     T total() {
       return tree[1];
+    }
+
+    T get(unsigned int idx) {
+      return tree[n+idx];
     }
     
     bool full() {
