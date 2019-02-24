@@ -1,20 +1,24 @@
 from distutils.core import setup, Extension 
 import sys
+import torch
+from torch.utils.cpp_extension import CppExtension, BuildExtension
 
-_C = Extension('Snake._C',
-                        sources=['src/_C/_C.cpp'],
-                        include_dirs=['/usr/local/include'],
-                        library_dirs=['/usr/local/lib/boost'],
-                        runtime_library_dirs=['/usr/local/lib/boost'],
-                        libraries=['boost_python3', 'boost_numpy3'])
+_C = Extension('ReplayMemory._C',
+    sources=[
+        'src/_C/SegmentTree.cpp',
+        'src/_C/Transition.cpp',
+        'src/_C/wrapper.cpp'
+    ],
+    include_dirs=torch.utils.cpp_extension.include_paths(),
+    extra_compile_args=['-D_GLIBCXX_USE_CXX11_ABI=0', '-DTORCH_API_INCLUDE_EXTENSION_H'],
+    language='c++')
 
-setup(name='Snake',
+setup(name='ReplayMemory',
       version='0.1',
-      description='Snake',
+      description='ReplayMemory',
       package_dir={'': 'src'},
-      packages=['Snake'],
       install_requires=[
-          'numpy',
-          'gym'
+          'torch',
       ],
+      packages=['ReplayMemory'],
       ext_modules=[_C])
