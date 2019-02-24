@@ -1,5 +1,4 @@
-#include "SegmentTree.cpp"
-#include "Transition.cpp"
+#include "ReplayMemory.cpp"
 #include <torch/extension.h>
 
 PYBIND11_MODULE(_C, m) {
@@ -11,5 +10,11 @@ PYBIND11_MODULE(_C, m) {
     .def("total", &AppendableSegmentTree<float>::total)
     .def("full", &AppendableSegmentTree<float>::full)
     .def("print", &AppendableSegmentTree<float>::print)
+  ;
+
+  py::class_<ReplayMemory>(m, "ReplayMemory")
+    .def(py::init<const unsigned int, const unsigned int, const unsigned int>())
+    .def("append", &ReplayMemory::append)
+    .def("sample", &ReplayMemory::sample)
   ;
 }

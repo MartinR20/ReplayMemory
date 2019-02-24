@@ -1,5 +1,6 @@
 #include <iostream>
 
+// based on https://www.geeksforgeeks.org/segment-tree-efficient-implementation/
 template<typename T>
 class AppendableSegmentTree {
   private:
@@ -61,7 +62,7 @@ class AppendableSegmentTree {
         }
       }
 
-      return tree[i>>1]; 
+      return tree[i>>1];
     }
     
     T total() {
