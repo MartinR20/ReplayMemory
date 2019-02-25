@@ -4,13 +4,13 @@
 template<typename T>
 class AppendableSegmentTree {
   private:
-    unsigned int n;
-    unsigned int idx;
     T* tree; 
 
   public:
+    unsigned int n;
+    unsigned int idx;
     // function to build the tree 
-    AppendableSegmentTree(const unsigned int n) : n(n), idx(0), tree(new T[2*n]) {
+    AppendableSegmentTree(const unsigned int n) : tree(new T[2*n]), n(n), idx(0) {
       for(unsigned int i = 0; i < 2*n; ++i) {
         tree[i] = 0;
       }      
@@ -62,7 +62,7 @@ class AppendableSegmentTree {
         }
       }
 
-      return (i>>1);
+      return (i>>1) - n;
     }
     
     T total() {

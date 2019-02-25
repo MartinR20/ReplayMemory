@@ -5,31 +5,23 @@
 #include <cmath>
 
 class Rnd {
-  std::random_device rd;  //Will be used to obtain a seed for the random number engine
-  std::mt19937 gen; //Standard mersenne_twister_engine seeded with rd()
-  std::uniform_int_distribution<> dis;
+  private:
+    std::mt19937 gen; //Standard mersenne_twister_engine seeded with std::random_device
 
-  Rnd() : gen(rd()) {}
-
-  int sample(int lower, int upper) {
-    return dis(lower, upper)(gen);
-  }
+  public:
+    Rnd() : gen((std::random_device())()) {}
+  
+    int sample(int lower, int upper) {
+      return std::uniform_int_distribution<>(lower, upper)(gen);
+    }
 };
 
-struct blank_trans {
-  const unsigned int timestep = 0;
-  const at::Tensor state      = torch::zeros({84, 84});
-  const unsigned int action   = UINT_MAX;
-  const float reward          = 0;
-  const bool nonterminal      = false;
-};
-
-class TransitionContainer {
+struct TransitionContainer {
   unsigned int* timesteps;
   at::Tensor* states;
   unsigned int* actions;
   float* rewards;
-  bool* nonterminals;
+  uint8_t* nonterminals;
   unsigned int idx = 0;
 
   TransitionContainer(unsigned int capacity) :
@@ -37,7 +29,20 @@ class TransitionContainer {
                   states(new at::Tensor[capacity]), 
                   actions(new unsigned int[capacity]),
                   rewards(new float[capacity]),
-                  nonterminals(new bool[capacity]) {}
+                  nonterminals(new uint8_t[capacity]) {}
+
+  TransitionContainer(unsigned int timestep, 
+                      at::Tensor state, 
+                      unsigned int action, 
+                      float reward, 
+                      bool nonterminal) : TransitionContainer(1)
+  {
+    timesteps[0] = timestep;
+    states[0] = state;
+    actions[0] = action;
+    rewards[0] = reward;
+    nonterminals[0] = (uint8_t)nonterminal;
+  }
 
   void append(unsigned int timestep,
             at::Tensor state,
@@ -45,16 +50,16 @@ class TransitionContainer {
             float reward,
             bool terminal) 
   {
-    timesteps[idx] = t;
+    timesteps[idx] = timestep;
     states[idx] = state[-1].mul(255).to(torch::kInt8).to(torch::kCPU); // TODO: probably better way to do this
     actions[idx] = action;
     rewards[idx] = reward;
-    nonterminals[idx] = !terminal;
+    nonterminals[idx] = (uint8_t)!terminal;
     
     ++idx;
   }
 
-  void set(TransitionContainer* other, unsigned int m, unsigned int n) {
+  void set(TransitionContainer* other, unsigned int m, unsigned int n) const {
     other->timesteps[m] = timesteps[n];
     other->states[m] = states[n];
     other->actions[m] = actions[n];
@@ -63,15 +68,19 @@ class TransitionContainer {
   }
 };
 
+const TransitionContainer blank_trans = TransitionContainer(0, torch::zeros({84, 84}), UINT_MAX - 1, 0, false);  
+
 class ReplayMemory {
   private:
-    unsigned int capacity;
-    unsigned int history;
+    const unsigned int capacity;
+    const unsigned int history;
     unsigned int t = 0;
-    unsigned int steps; //n
-    float discount;
-    float priority_weight;
-    torch::device device;
+    unsigned int current_idx = 0;
+    const unsigned int steps; //n
+    const float discount;
+    const float priority_weight;
+    const float priority_exponent;
+    const at::Device device;
     AppendableSegmentTree<float> segtree;
     TransitionContainer transitions;
 
@@ -79,20 +88,21 @@ class ReplayMemory {
     ReplayMemory(const unsigned int capacity, 
                   const unsigned int history, 
                   const unsigned int steps,
-                  float discount,
-                  float priority_weight,
-                  std::string device)
+                  const float discount,
+                  const float priority_weight,
+                  const float priority_exponent,
+                  const std::string device)
                 : capacity(capacity),
                   history(history),
                   steps(steps),
                   discount(discount),
                   priority_weight(priority_weight),
+                  priority_exponent(priority_exponent),
                   device(device == "gpu" ? torch::kCUDA : torch::kCPU),
                   segtree(AppendableSegmentTree<float>(capacity)),
                   transitions(capacity) {}
 
-    void append(unsigned int timestep,
-            at::Tensor state,
+    void append(at::Tensor state,
             unsigned int action,
             float reward,
             bool terminal) 
@@ -111,98 +121,167 @@ class ReplayMemory {
     py::tuple sample(unsigned int batch_size) 
     {
       unsigned int p_total = (unsigned int)segtree.total();
+      assert(p_total != 0);
+      
       unsigned int segment = p_total / batch_size;
-      Rnd rnd = Rnd()
+      Rnd rnd = Rnd();
 
       std::vector<float> probs(batch_size);
       std::vector<unsigned int> idxs(batch_size);
       std::vector<at::Tensor> states(batch_size * history);
-      std::vector<unsigned int> actions(batch_size * (history + n));
+      std::vector<unsigned int> actions(batch_size * (history + steps));
       std::vector<float> R(batch_size);
       std::vector<at::Tensor> next_states(batch_size * history);
-      std::vector<bool> nonterminals(batch_size);
+      std::vector<uint8_t> nonterminals(batch_size);
 
       for(unsigned int i = 0; i < batch_size; ++i) {
         //_get_sample_from_segment
         unsigned int sample;
+        unsigned int idx;
+        float prob;
         
         bool valid = false;
 
         while(!valid) {
           sample = rnd.sample(i * segment, (i + 1) * segment);
-          idxs[i] = segtree.find(sample);
-          probs[i] = segtree.get(idx);
+          idx = segtree.find(sample);
+          prob = segtree.get(idx);
 
           if( (segtree.idx - idx) % capacity > steps && (idx - segtree.idx) % capacity >= history && prob != 0)
             valid = true;
         }
 
+        idxs[i] = idx;
+        probs[i] = prob;
+
         ////_get_transition
-        std::vector<unsigned int> timestemp(history + n);
-        std::vector<at::Tensor> state(history + n)
-        std::vector<bool> nonterminal(history + n);
-        unsigned int offset = i * (history + n);
+        TransitionContainer transition = TransitionContainer(history + steps);
+        transitions.set(&transition, history - 1, idx);
 
-        timesteps[history - 1]        = transitions.timesteps[idx];
-        state[history - 1]            = transitions.states[idx];        
-        actions[offset + history - 1] = transitions.actions[idx];
-        nonterminal[history - 1]      = transitions.nonterminals[idx];
+        assert(history > 2);
 
-        for(unsigned int t = history - 2; t >= 0; --t) {
-          if(timesteps[t + 1] != 0) {
-            timesteps[t]        = transitions.timesteps[idx - history + 1 + t];
-            state[t]            = transitions.states[idx - history + 1 + t];        
-            actions[offset + t] = transitions.actions[idx - history + 1 + t];
-            nonterminal[t]      = transitions.nonterminals[idx - history + 1 + t];
+        for(signed int t = history - 2; t >= 0; --t) {
+          if(transition.timesteps[t + 1] != 0) {
+            transitions.set(&transition, t, idx - history + 1 + t);
           } else {
-            timesteps[t]        = blank_trans.timestep
-            state[t]            = blank_trans.state;        
-            actions[offset + t] = blank_trans.action;
-            nonterminal[t]      = blank_trans.nonterminal;
+            blank_trans.set(&transition, t, 0);
           }
         }
 
-        for(unsigned int t = history; t < history + n; ++t) {
-          if(nonterminal[t - 1]) {
-            timesteps[t]        = transitions.timesteps[idx - history + 1 + t];
-            state[t]            = transitions.states[idx - history + 1 + t];        
-            actions[offset + t] = transitions.actions[idx - history + 1 + t];
-            nonterminal[t]      = transitions.nonterminals[idx - history + 1 + t];
+        for(unsigned int t = history; t < history + steps; ++t) {
+          if(transition.nonterminals[t - 1]) {
+            transitions.set(&transition, t, idx - history + 1 + t);
           } else {
-            timesteps[t]        = blank_trans.timestep
-            state[t]            = blank_trans.state;        
-            actions[offset + t] = blank_trans.action;
-            nonterminal[t]      = blank_trans.nonterminal;
+            blank_trans.set(&transition, t, 0);
           }
         }
         ////
+
         for(unsigned int t = 0; t < history; t++) {
-          states[t] = state[t];
-          next_states[t] = state[n + t];
+          states[i + t] = transition.states[t];
+          next_states[i + t] = transition.states[steps + t];
         }
 
-        float sum = 0
-        for(unsigned int k = 0; k < n; ++k)
-          sum += std::pow(discount, k) * transition.rewards[history + k - 1]
+        float sum = 0;
+        for(unsigned int k = 0; k < steps; ++k)
+          sum += std::pow(discount, k) * transition.rewards[history + k - 1];
 
         R[i] = sum;
-        nonterminals[i] = nonterminal[history + n - 1];
+
+        for(unsigned int t = 0; t < history + steps; ++t)
+          actions[i + t] = transition.actions[t];
+
+        nonterminals[i] = transition.nonterminals[history + steps - 1];
         //
       }
 
       at::Tensor t_probs = torch::from_blob(probs.data(), {batch_size});
       at::Tensor t_idxs = torch::from_blob(idxs.data(), {batch_size});
       at::Tensor t_states = torch::from_blob(states.data(), {batch_size * history, 84, 84});
-      at::Tensor t_actions = torch::from_blob(actions.data(), {batch_size* (history + n)});
+      at::Tensor t_actions = torch::from_blob(actions.data(), {batch_size* (history + steps)});
       at::Tensor t_R = torch::from_blob(R.data(), {batch_size});      
       at::Tensor t_next_states = torch::from_blob(next_states.data(), {batch_size * history, 84, 84});
-      at::Tensor t_nonterminals = torch::from_blob(nonterminals.data(), {batch_size});      
+      at::Tensor t_nonterminals = torch::from_blob(nonterminals.data(), {batch_size});
 
-      t_probs.div_(p_total)
-      unsigned int cap = transitions.full() ? capacity : transitions.idx;
-      at::Tensor weights = (t_probs.dot(cap)).pow(-priority_weight);
-      weights.div_(at::max(weights)).to(torch::kFloat32).to(device);
+      t_probs
+        .div_((float)p_total)
+        .mul_((float)(segtree.full() ? capacity : transitions.idx))
+        .pow_(-priority_weight)
+      ;
+
+      at::Tensor weights = t_probs;
+      weights
+        .div_(at::max(weights))
+        .to(torch::kFloat32)
+        .to(device)
+      ;
 
       return py::make_tuple(t_idxs, t_states, t_actions, t_R, t_next_states, t_nonterminals, weights);
     }
+
+    void update_priorities(at::Tensor idxs, at::Tensor priorities) {
+      assert(idxs.size(0) == priorities.size(0));
+
+      priorities.pow_(priority_exponent);
+
+      for(unsigned int i = 0; i < idxs.size(0); ++i) 
+        segtree.update(idxs[i].item<int>(), priorities[i].item<float>());
+    }
+
+    ReplayMemory* __iter__() {
+      current_idx = 0;
+      return this;
+    }
+
+    at::Tensor __next__() {
+      if(current_idx == capacity)
+        throw py::stop_iteration();
+
+      at::Tensor state_stack = torch::empty({history, 84, 84});
+      state_stack[history - 1] = transitions.states[current_idx];
+      unsigned int prev_timestep = transitions.timesteps[current_idx];
+
+      for(signed int t = history - 1; t >= 0; --t) {
+        if(prev_timestep) {
+          state_stack[t] = transitions.states[current_idx + t - history + 1];
+          prev_timestep -= 1;
+        } else {
+          state_stack[t] = blank_trans.states[0];
+        }
+      }
+
+      ++current_idx;
+      return state_stack;
+    }
+
 };
+
+/*
+float randf() {
+  return (float)(rand()) / (float)(RAND_MAX);
+}
+
+int main() {
+    const unsigned int size = 50;
+    const unsigned int action_space = 5;
+    const unsigned int max_rand = 50;
+
+    Rnd rnd = Rnd();
+
+    ReplayMemory mem = ReplayMemory(size, 4, 3, 0.99, 0.4, 0.5, "");
+
+    for(unsigned int i = 0; i < size; ++i) {
+      const int sample1 = rnd.sample(0, action_space);
+      const int sample2 = rnd.sample(0, max_rand);
+      const int bool_sample = rnd.sample(0, 2);
+
+      mem.append(torch::ones({84, 84}), sample1, sample2 * randf(), (bool)bool_sample);    
+    }
+
+    mem.update_priorities(torch::arange({(float)size}), torch::randint(0, max_rand, {size}));
+
+    mem.sample(1);
+
+    return 0;
+}
+*/

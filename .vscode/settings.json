@@ -50,6 +50,7 @@
         "typeindex": "cpp",
         "typeinfo": "cpp",
         "utility": "cpp",
-        "cstdarg": "cpp"
+        "cstdarg": "cpp",
+        "valarray": "cpp"
     }
 }

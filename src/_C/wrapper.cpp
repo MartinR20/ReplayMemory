@@ -13,8 +13,17 @@ PYBIND11_MODULE(_C, m) {
   ;
 
   py::class_<ReplayMemory>(m, "ReplayMemory")
-    .def(py::init<const unsigned int, const unsigned int, const unsigned int>())
+    .def(py::init<const unsigned int, 
+                  const unsigned int, 
+                  const unsigned int,
+                  const float,
+                  const float,
+                  const float,
+                  const std::string>())
     .def("append", &ReplayMemory::append)
     .def("sample", &ReplayMemory::sample)
+    .def("update_priorities", &ReplayMemory::update_priorities)
+    .def("__iter__", &ReplayMemory::__iter__)
+    .def("__next__", &ReplayMemory::__next__)
   ;
 }
