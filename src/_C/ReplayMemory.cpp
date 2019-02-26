@@ -161,7 +161,12 @@ class ReplayMemory {
       t = terminal ? 0 : t+1;
     }
 
+#ifndef CPP_ONLY
     py::tuple sample(unsigned int batch_size) 
+#else
+    std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor,
+               at::Tensor, at::Tensor> sample(unsigned int batch_size) 
+#endif
     {
       unsigned int p_total = (unsigned int)segtree.total();
       assert(p_total != 0);
@@ -258,8 +263,11 @@ class ReplayMemory {
         .to(torch::kFloat32)
         .to(device)
       ;
-
+#ifndef CPP_ONLY
       return py::make_tuple(t_idxs, t_states, t_actions, t_R, t_next_states, t_nonterminals, weights);
+#else
+      return std::make_tuple(t_idxs, t_states, t_actions, t_R, t_next_states, t_nonterminals, weights);
+#endif
     }
 
     void update_priorities(at::Tensor idxs, at::Tensor priorities) {
@@ -278,7 +286,11 @@ class ReplayMemory {
 
     at::Tensor __next__() {
       if(current_idx == capacity)
+#ifndef CPP_ONLY
         throw py::stop_iteration();
+#else
+        throw std::exception();        
+#endif
 
       at::Tensor state_stack = torch::empty({history, 84, 84});
       state_stack[history - 1] = transitions.states[current_idx];
