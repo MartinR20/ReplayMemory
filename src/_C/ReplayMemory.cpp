@@ -170,10 +170,10 @@ class ReplayMemory {
 
       std::vector<float> probs(batch_size);
       std::vector<unsigned int> idxs(batch_size);
-      std::vector<at::Tensor> states(batch_size * history);
+      std::vector<at::Tensor*> states(batch_size * history);
       std::vector<unsigned int> actions(batch_size * (history + steps));
       std::vector<float> R(batch_size);
-      std::vector<at::Tensor> next_states(batch_size * history);
+      std::vector<at::Tensor*> next_states(batch_size * history);
       std::vector<uint8_t> nonterminals(batch_size);
 
       for(unsigned int i = 0; i < batch_size; ++i) {
@@ -197,13 +197,13 @@ class ReplayMemory {
         probs[i] = prob;
 
         ////_get_transition
-        TransitionContainer transition = TransitionContainer(history + steps);
+        TransitionReference transition = TransitionReference(history + steps);
         transitions.set(&transition, history - 1, idx);
 
         assert(history > 2);
 
         for(signed int t = history - 2; t >= 0; --t) {
-          if(transition.timesteps[t + 1] != 0) {
+          if(transition.timesteps(t + 1) != 0) {
             transitions.set(&transition, t, idx - history + 1 + t);
           } else {
             blank_trans.set(&transition, t, 0);
@@ -211,7 +211,7 @@ class ReplayMemory {
         }
 
         for(unsigned int t = history; t < history + steps; ++t) {
-          if(transition.nonterminals[t - 1]) {
+          if(transition.nonterminals(t - 1)) {
             transitions.set(&transition, t, idx - history + 1 + t);
           } else {
             blank_trans.set(&transition, t, 0);
@@ -220,30 +220,41 @@ class ReplayMemory {
         ////
 
         for(unsigned int t = 0; t < history; t++) {
-          states[i + t] = transition.states[t];
-          next_states[i + t] = transition.states[steps + t];
+          states[i * history + t] = transition._states[t];
+          next_states[i * history + t] = transition._states[steps + t];
         }
 
         float sum = 0;
         for(unsigned int k = 0; k < steps; ++k)
-          sum += std::pow(discount, k) * transition.rewards[history + k - 1];
+          sum += std::pow(discount, k) * transition.rewards(history + k - 1);
 
         R[i] = sum;
 
         for(unsigned int t = 0; t < history + steps; ++t)
-          actions[i + t] = transition.actions[t];
+          actions[i * (history + steps) + t] = transition.actions(t);
 
-        nonterminals[i] = transition.nonterminals[history + steps - 1];
+        nonterminals[i] = transition.nonterminals(history + steps - 1);
         //
       }
 
-      at::Tensor t_probs = torch::from_blob(probs.data(), {batch_size});
-      at::Tensor t_idxs = torch::from_blob(idxs.data(), {batch_size});
-      at::Tensor t_states = torch::from_blob(states.data(), {batch_size * history, 84, 84});
-      at::Tensor t_actions = torch::from_blob(actions.data(), {batch_size* (history + steps)});
-      at::Tensor t_R = torch::from_blob(R.data(), {batch_size});      
-      at::Tensor t_next_states = torch::from_blob(next_states.data(), {batch_size * history, 84, 84});
-      at::Tensor t_nonterminals = torch::from_blob(nonterminals.data(), {batch_size});
+      at::Tensor t_probs = torch::empty({batch_size}, torch::kFloat32);
+      at::Tensor t_idxs = torch::empty({batch_size}, torch::kInt32);
+      at::Tensor t_states = torch::empty({batch_size * history, 84, 84}, torch::kUInt8);
+      at::Tensor t_actions = torch::empty({batch_size* (history + steps)}, torch::kInt32);
+      at::Tensor t_R = torch::empty({batch_size}, torch::kFloat32);      
+      at::Tensor t_next_states = torch::empty({batch_size * history, 84, 84}, torch::kUInt8);
+      at::Tensor t_nonterminals = torch::empty({batch_size}, torch::kUInt8);
+
+      std::copy_n(probs.data(), batch_size, t_probs.data<float>());
+      std::copy_n(idxs.data(), batch_size, t_idxs.data<int>());
+      std::copy_n(actions.data(), batch_size* (history + steps), t_actions.data<int>());
+      std::copy_n(R.data(), batch_size, t_R.data<float>());
+      std::copy_n(nonterminals.data(), batch_size, t_nonterminals.data<uint8_t>());
+
+      for(unsigned int i = 0; i < batch_size * history; ++i) {
+        t_states[i] = *states[i];
+        t_next_states[i] = *next_states[i];
+      }
 
       t_probs
         .div_((float)p_total)
