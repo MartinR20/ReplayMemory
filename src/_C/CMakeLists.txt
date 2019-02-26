@@ -4,7 +4,7 @@ project(component_test)
 find_package(PythonLibs REQUIRED)
 find_package(Torch REQUIRED)
 
-add_executable(component_test ReplayMemory.cpp SegmentTree.cpp)
+add_executable(component_test ReplayMemory.cpp SegmentTree.cpp component_test.cpp)
 
 include_directories(${PYTHON_INCLUDE_DIRS})
 
