@@ -151,13 +151,7 @@ class ReplayMemory {
             bool terminal) 
     {
       segtree.append(segtree.total());
-      
-      transitions.append(t,
-                          state[-1].mul(255).to(torch::kInt8).to(torch::kCPU), // TODO: probably better way to do this
-                          action,
-                          reward,
-                          !terminal);
-      
+      transitions.append(t, state, action, reward, !terminal);
       t = terminal ? 0 : t+1;
     }
 
