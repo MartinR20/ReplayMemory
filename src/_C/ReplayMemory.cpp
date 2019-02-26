@@ -16,6 +16,41 @@ class Rnd {
     }
 };
 
+struct TransitionReference {
+  unsigned int** _timesteps;
+  at::Tensor** _states;
+  unsigned int** _actions;
+  float** _rewards;
+  uint8_t** _nonterminals;
+
+  TransitionReference(unsigned int capacity) :
+                  _timesteps(new unsigned int*[capacity]), 
+                  _states(new at::Tensor*[capacity]), 
+                  _actions(new unsigned int*[capacity]),
+                  _rewards(new float*[capacity]),
+                  _nonterminals(new uint8_t*[capacity]) {}
+  
+  unsigned int timesteps(unsigned int i) {
+    return (*_timesteps)[i];
+  }
+
+  at::Tensor states(unsigned int i) {
+    return (*_states)[i];
+  }
+
+  unsigned int actions(unsigned int i) {
+    return (*_actions)[i];
+  }
+
+  float rewards(unsigned int i) {
+    return (*_rewards)[i];
+  }
+
+  uint8_t nonterminals(unsigned int i) {
+    return (*_nonterminals)[i];
+  }
+};
+
 struct TransitionContainer {
   unsigned int* timesteps;
   at::Tensor* states;
@@ -65,6 +100,14 @@ struct TransitionContainer {
     other->actions[m] = actions[n];
     other->rewards[m] = rewards[n];
     other->nonterminals[m] = nonterminals[n];
+  }
+
+  void set(TransitionReference* other, unsigned int m, unsigned int n) const {
+    other->_timesteps[m] = &timesteps[n];
+    other->_states[m] = &states[n];
+    other->_actions[m] = &actions[n];
+    other->_rewards[m] = &rewards[n];
+    other->_nonterminals[m] = &nonterminals[n];
   }
 };
 
