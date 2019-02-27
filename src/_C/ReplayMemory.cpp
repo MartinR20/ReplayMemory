@@ -31,23 +31,23 @@ struct TransitionReference {
                   _nonterminals(new uint8_t*[capacity]) {}
   
   unsigned int timesteps(unsigned int i) {
-    return (*_timesteps)[i];
+    return *_timesteps[i];
   }
 
   at::Tensor states(unsigned int i) {
-    return (*_states)[i];
+    return *_states[i];
   }
 
   unsigned int actions(unsigned int i) {
-    return (*_actions)[i];
+    return *_actions[i];
   }
 
   float rewards(unsigned int i) {
-    return (*_rewards)[i];
+    return *_rewards[i];
   }
 
   uint8_t nonterminals(unsigned int i) {
-    return (*_nonterminals)[i];
+    return *_nonterminals[i];
   }
 };
 
@@ -111,7 +111,7 @@ struct TransitionContainer {
   }
 };
 
-const TransitionContainer blank_trans = TransitionContainer(0, torch::zeros({84, 84}), UINT_MAX - 1, 0, false);  
+const TransitionContainer blank_trans = TransitionContainer(0, torch::zeros({84, 84}), INT_MAX, 0, false);  
 
 class ReplayMemory {
   private:
@@ -237,17 +237,17 @@ class ReplayMemory {
         //
       }
 
-      at::Tensor t_probs = torch::empty({batch_size}, torch::kFloat32);
+      at::Tensor weights = torch::empty({batch_size}, torch::kFloat32);
       at::Tensor t_idxs = torch::empty({batch_size}, torch::kInt32);
       at::Tensor t_states = torch::empty({batch_size * history, 84, 84}, torch::kUInt8);
-      at::Tensor t_actions = torch::empty({batch_size* (history + steps)}, torch::kInt32);
+      at::Tensor t_actions = torch::empty({batch_size * (history + steps)}, torch::kInt32);
       at::Tensor t_R = torch::empty({batch_size}, torch::kFloat32);      
       at::Tensor t_next_states = torch::empty({batch_size * history, 84, 84}, torch::kUInt8);
       at::Tensor t_nonterminals = torch::empty({batch_size}, torch::kUInt8);
 
-      std::copy_n(probs.data(), batch_size, t_probs.data<float>());
+      std::copy_n(probs.data(), batch_size, weights.data<float>());
       std::copy_n(idxs.data(), batch_size, t_idxs.data<int>());
-      std::copy_n(actions.data(), batch_size* (history + steps), t_actions.data<int>());
+      std::copy_n(actions.data(), batch_size * (history + steps), t_actions.data<int>());
       std::copy_n(R.data(), batch_size, t_R.data<float>());
       std::copy_n(nonterminals.data(), batch_size, t_nonterminals.data<uint8_t>());
 
@@ -256,16 +256,11 @@ class ReplayMemory {
         t_next_states[i] = *next_states[i];
       }
 
-      t_probs
+      weights
         .div_((float)p_total)
         .mul_((float)(segtree.full() ? capacity : transitions.idx))
         .pow_(-priority_weight)
-      ;
-
-      at::Tensor weights = t_probs;
-      weights
         .div_(at::max(weights))
-        .to(torch::kFloat32)
         .to(device)
       ;
 #ifndef CPP_ONLY
