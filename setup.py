@@ -8,7 +8,6 @@ _C = Extension('ReplayMemory._C',
         'src/_C/SegmentTree.cpp',
         'src/_C/ReplayMemory.cpp',
         'src/_C/wrapper.cpp',
-        'src/_C/cptl.h'
     ],
     include_dirs=torch.utils.cpp_extension.include_paths(),
     extra_compile_args=[

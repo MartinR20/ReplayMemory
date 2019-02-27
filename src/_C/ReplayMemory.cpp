@@ -86,7 +86,11 @@ struct TransitionContainer {
             bool terminal) 
   {
     timesteps[idx] = timestep;
-    states[idx] = state[-1].mul(255).to(torch::kInt8).to(torch::kCPU); // TODO: probably better way to do this
+    /*
+      * note removing .mul(255).to(torch::kInt8).to(torch::kCPU) yield a performence 
+      * increase of about 2.5 fold
+    */
+    states[idx] = state[-1].mul(255).to(torch::kInt8).to(torch::kCPU); 
     actions[idx] = action;
     rewards[idx] = reward;
     nonterminals[idx] = (uint8_t)!terminal;
@@ -121,13 +125,14 @@ class ReplayMemory {
     unsigned int current_idx = 0;
     const unsigned int steps; //n
     const float discount;
-    const float priority_weight;
     const float priority_exponent;
     const at::Device device;
     AppendableSegmentTree<float> segtree;
     TransitionContainer transitions;
 
   public:
+    float priority_weight;
+
     ReplayMemory(const unsigned int capacity, 
                   const unsigned int history, 
                   const unsigned int steps,
@@ -143,7 +148,19 @@ class ReplayMemory {
                   priority_exponent(priority_exponent),
                   device(device == "gpu" ? torch::kCUDA : torch::kCPU),
                   segtree(AppendableSegmentTree<float>(capacity)),
-                  transitions(capacity) {}
+                  transitions(capacity) 
+    {
+      /*
+        * Arguments:
+        *   capacity: Capacity of Buffer
+        *   history: ...
+        *   steps: multistepnumber
+        *   discount: discount value
+        *   priority_weight: ...
+        *   priority_exponent: ...
+        *   device: "gpu" if GPU Tensors are intended, everything else for CPU
+      */
+    }
 
     void append(at::Tensor state,
             unsigned int action,
@@ -162,6 +179,11 @@ class ReplayMemory {
                at::Tensor, at::Tensor> sample(unsigned int batch_size) 
 #endif
     {
+      /*
+        * Samples Transitions based on a standard uniform distribution
+        * "weighted" by a priorty score for each frame
+      */
+
       unsigned int p_total = (unsigned int)segtree.total();
       assert(p_total != 0);
       
@@ -270,13 +292,16 @@ class ReplayMemory {
 #endif
     }
 
-    void update_priorities(at::Tensor idxs, at::Tensor priorities) {
-      assert(idxs.size(0) == priorities.size(0));
+    void update_priorities(at::Tensor __idxs, at::Tensor __priorities) {
+      assert(__idxs.size(0) == __priorities.size(0));
 
-      priorities.pow_(priority_exponent);
+      __priorities.pow_(priority_exponent);
 
-      for(unsigned int i = 0; i < idxs.size(0); ++i) 
-        segtree.update(idxs[i].item<int>(), priorities[i].item<float>());
+      int* idxs = __idxs.data<int>();
+      float* priorities = __priorities.data<float>();
+
+      for(unsigned int i = 0; i < __idxs.size(0); ++i) 
+        segtree.update(idxs[i], priorities[i]);
     }
 
     ReplayMemory* __iter__() {

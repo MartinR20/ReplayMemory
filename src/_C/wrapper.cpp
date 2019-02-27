@@ -25,5 +25,6 @@ PYBIND11_MODULE(_C, m) {
     .def("update_priorities", &ReplayMemory::update_priorities)
     .def("__iter__", &ReplayMemory::__iter__)
     .def("__next__", &ReplayMemory::__next__)
+    .def_readwrite("priority_weight", &ReplayMemory::priority_weight)
   ;
 }
