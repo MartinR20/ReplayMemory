@@ -7,10 +7,16 @@ _C = Extension('ReplayMemory._C',
     sources=[
         'src/_C/SegmentTree.cpp',
         'src/_C/ReplayMemory.cpp',
-        'src/_C/wrapper.cpp'
+        'src/_C/wrapper.cpp',
+        'src/_C/cptl.h'
     ],
     include_dirs=torch.utils.cpp_extension.include_paths(),
-    extra_compile_args=['-D_GLIBCXX_USE_CXX11_ABI=0', '-DTORCH_API_INCLUDE_EXTENSION_H'],
+    extra_compile_args=[
+        '-D_GLIBCXX_USE_CXX11_ABI=0', 
+        '-DTORCH_API_INCLUDE_EXTENSION_H',
+        "-DNDEBUG",
+        "-O3"
+    ],
     language='c++')
 
 setup(name='ReplayMemory',
