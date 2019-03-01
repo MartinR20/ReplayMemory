@@ -31,8 +31,9 @@ int main() {
     using namespace std::chrono;
     auto start = high_resolution_clock::now();
 
-    for(unsigned int i = 0; i < 50; ++i)
+    for(unsigned int i = 0; i < 50; ++i) {
         auto sample = mem.sample(32);
+    }
 
     auto end = high_resolution_clock::now();
     std::cout << duration_cast<milliseconds>(end - start).count() << '\n';

@@ -5,8 +5,6 @@ from torch.utils.cpp_extension import CppExtension, BuildExtension
 
 _C = Extension('ReplayMemory._C',
     sources=[
-        'src/_C/SegmentTree.cpp',
-        'src/_C/ReplayMemory.cpp',
         'src/_C/wrapper.cpp',
     ],
     include_dirs=torch.utils.cpp_extension.include_paths(),

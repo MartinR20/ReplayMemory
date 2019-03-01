@@ -129,6 +129,7 @@ class ReplayMemory {
     const unsigned int steps; //n
     const float discount;
     const float priority_exponent;
+    unsigned int priority_max = 1;
     const at::Device device;
     AppendableSegmentTree<float> segtree;
     TransitionContainer transitions;
@@ -170,7 +171,7 @@ class ReplayMemory {
             float reward,
             bool terminal) 
     {
-      segtree.append(segtree.total());
+      segtree.append(priority_max);
       transitions.append(t, state, action, reward, !terminal);
       t = terminal ? 0 : t+1;
     }
@@ -201,7 +202,7 @@ class ReplayMemory {
       std::vector<float> probs(batch_size);
       std::vector<unsigned int> idxs(batch_size);
       std::vector<at::Tensor*> states(batch_size * history);
-      std::vector<unsigned long> actions(batch_size * (history + steps));
+      std::vector<unsigned long> actions(batch_size);
       std::vector<float> R(batch_size);
       std::vector<at::Tensor*> next_states(batch_size * history);
       std::vector<uint8_t> nonterminals(batch_size);
@@ -268,15 +269,16 @@ class ReplayMemory {
         usleep(10);
       }
 
-      at::Tensor weights = torch::empty({batch_size}, torch::kFloat32);
-      at::Tensor t_idxs = torch::empty({batch_size}, torch::kInt32);
-      at::Tensor t_states = torch::empty({batch_size * history, 84, 84}, torch::kUInt8);
-      at::Tensor t_actions = torch::empty({batch_size * (history + steps)}, torch::kInt64);
-      at::Tensor t_R = torch::empty({batch_size}, torch::kFloat32);      
-      at::Tensor t_next_states = torch::empty({batch_size * history, 84, 84}, torch::kUInt8);
-      at::Tensor t_nonterminals = torch::empty({batch_size}, torch::kUInt8);
+      at::Tensor weights;
+      at::Tensor t_idxs;
+      at::Tensor t_states;
+      at::Tensor t_actions;
+      at::Tensor t_R;     
+      at::Tensor t_next_states;
+      at::Tensor t_nonterminals;
 
       pool.push([&](int id){ 
+        weights = torch::empty({batch_size}, torch::kFloat32);
         std::copy_n(probs.data(), batch_size, weights.data<float>()); 
         weights
           .div_((float)p_total)
@@ -287,36 +289,39 @@ class ReplayMemory {
         ;
       }); 
       
-      pool.push([&](int id){ 
+      pool.push([&](int id){
+        t_idxs = torch::empty({batch_size}, torch::kInt32);
         std::copy_n(idxs.data(), batch_size, t_idxs.data<int>()); 
       }); 
       
       pool.push([&](int id){ 
+        t_actions = torch::empty({batch_size}, torch::kInt64);
         std::copy_n(actions.data(), batch_size, t_actions.data<long>()); 
       }); 
       
       pool.push([&](int id){ 
+        t_R = torch::empty({batch_size}, torch::kFloat32); 
         std::copy_n(R.data(), batch_size, t_R.data<float>()); 
       }); 
       
       pool.push([&](int id){ 
+        t_nonterminals = torch::empty({batch_size}, torch::kUInt8);
         std::copy_n(nonterminals.data(), batch_size, t_nonterminals.data<uint8_t>());
         t_nonterminals = t_nonterminals.view({batch_size, 1}).to(torch::kFloat32);        
       }); 
+   
+      t_states = torch::empty({batch_size * history, 84, 84}, torch::kUInt8);
+      t_next_states = torch::empty({batch_size * history, 84, 84}, torch::kUInt8);
 
-      pool.push([&](int id){ 
-        for(unsigned int i = 0; i < batch_size * history; ++i) {
+      for(unsigned int i = 0; i < batch_size * history; ++i) {
+        pool.push([&](int id, int i){ 
           t_states[i] = *states[i];
-        }
-        t_states = t_states.view({batch_size, history, 84, 84}).to(torch::kFloat32);
-      }); 
-
-      pool.push([&](int id){ 
-        for(unsigned int i = 0; i < batch_size * history; ++i) {
           t_next_states[i] = *next_states[i];
-        }
-        t_next_states = t_next_states.view({batch_size, history, 84, 84}).to(torch::kFloat32);
-      }); 
+        }, i);
+      }
+      
+      t_states = t_states.view({batch_size, history, 84, 84}).to(torch::kFloat32);
+      t_next_states = t_next_states.view({batch_size, history, 84, 84}).to(torch::kFloat32);
 
       while(pool.n_idle() != 4) {
         usleep(10);
@@ -330,15 +335,21 @@ class ReplayMemory {
     }
 
     void update_priorities(at::Tensor __idxs, at::Tensor __priorities) {
+#ifndef CPP_ONLY
+      if(__idxs.size(0) != __priorities.size(0)) throw py::index_error();
+#else
       assert(__idxs.size(0) == __priorities.size(0));
+#endif
 
       __priorities.pow_(priority_exponent);
 
       int* idxs = __idxs.data<int>();
       float* priorities = __priorities.data<float>();
 
-      for(unsigned int i = 0; i < __idxs.size(0); ++i) 
+      for(unsigned int i = 0; i < __idxs.size(0); ++i) {
+        priority_max = utils::max(priority_max, priorities[i]);
         segtree.update(idxs[i], priorities[i]);
+      }
     }
 
     ReplayMemory* __iter__() {
@@ -347,11 +358,10 @@ class ReplayMemory {
     }
 
     at::Tensor __next__() {
-      if(current_idx == capacity)
 #ifndef CPP_ONLY
-        throw py::stop_iteration();
+        if(current_idx == capacity) throw py::stop_iteration();
 #else
-        throw std::exception();        
+        assert(current_idx != capacity);        
 #endif
 
       at::Tensor state_stack = torch::empty({history, 84, 84});
