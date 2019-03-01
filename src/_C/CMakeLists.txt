@@ -5,18 +5,18 @@ project(component_test)
 #set(CMAKE_CXX_CPPCHECK "/usr/bin/cppcheck;--std=c++11")
 #set(CMAKE_CXX_CPPLINT "/home/notroot/.local/bin/cpplint;--linelength=79")
 #set(CMAKE_CXX_INCLUDE_WHAT_YOU_USE "/usr/bin/iwyu;--transitive_includes_only")
-set(CMAKE_LINK_WHAT_YOU_USE TRUE)
+#set(CMAKE_LINK_WHAT_YOU_USE TRUE)
 
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pg")
-SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pg")
-SET(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -pg")
+#SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pg")
+#SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pg")
+#SET(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -pg")
 
-set(${CMAKE_PREFIX_PATH} "/home/notroot/.local/lib/python3.7/site-packages/torch/lib/include")
+set(CMAKE_PREFIX_PATH "~/Projects/ml/rl/torch/libtorch")
 
 find_package(PythonLibs REQUIRED)
 find_package(Torch REQUIRED)
 
-add_executable(component_test ReplayMemory.cpp SegmentTree.cpp component_test.cpp)
+add_executable(component_test benchmark.cpp)
 
 include_directories(${PYTHON_INCLUDE_DIRS})
 

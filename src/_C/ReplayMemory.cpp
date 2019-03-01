@@ -1,8 +1,11 @@
+#include "utils.cpp"
+#include "cptl.h"
 #include <torch/extension.h>
 #include "SegmentTree.cpp"
 #include <random>
 #include <vector>
 #include <cmath>
+#include <unistd.h>
 
 class Rnd {
   private:
@@ -184,107 +187,141 @@ class ReplayMemory {
         * "weighted" by a priorty score for each frame
       */
 
-      unsigned int p_total = (unsigned int)segtree.total();
-      assert(p_total != 0);
-      
+#ifndef CPP_ONLY
+      if(!(history > 2)) throw py::value_error();
+#else
+      assert(history > 2);
+#endif
+
+      ctpl::thread_pool pool(4);
+      unsigned int p_total = segtree.total();
       unsigned int segment = p_total / batch_size;
       Rnd rnd = Rnd();
 
       std::vector<float> probs(batch_size);
       std::vector<unsigned int> idxs(batch_size);
       std::vector<at::Tensor*> states(batch_size * history);
-      std::vector<unsigned int> actions(batch_size * (history + steps));
+      std::vector<unsigned long> actions(batch_size * (history + steps));
       std::vector<float> R(batch_size);
       std::vector<at::Tensor*> next_states(batch_size * history);
       std::vector<uint8_t> nonterminals(batch_size);
 
       for(unsigned int i = 0; i < batch_size; ++i) {
-        //_get_sample_from_segment
-        unsigned int sample;
-        unsigned int idx;
-        float prob;
-        
-        bool valid = false;
+        pool.push([&](int id, int i) {
+          //_get_sample_from_segment
+          unsigned int sample;
+          unsigned int idx;
+          float prob;
+          
+          bool valid = false;
 
-        while(!valid) {
-          sample = rnd.sample(i * segment, (i + 1) * segment);
-          idx = segtree.find(sample);
-          prob = segtree.get(idx);
+          while(!valid) {
+            sample = rnd.sample(i * segment, (i + 1) * segment);
+            idx = this->segtree.find(sample);
+            prob = this->segtree.get(idx);
 
-          if( (segtree.idx - idx) % capacity > steps && (idx - segtree.idx) % capacity >= history && prob != 0)
-            valid = true;
-        }
-
-        idxs[i] = idx;
-        probs[i] = prob;
-
-        ////_get_transition
-        TransitionReference transition = TransitionReference(history + steps);
-        transitions.set(&transition, history - 1, idx);
-
-        assert(history > 2);
-
-        for(signed int t = history - 2; t >= 0; --t) {
-          if(transition.timesteps(t + 1) != 0) {
-            transitions.set(&transition, t, idx - history + 1 + t);
-          } else {
-            blank_trans.set(&transition, t, 0);
+            if( (this->segtree.idx - idx) % this->capacity > this->steps && (idx - this->segtree.idx) % this->capacity >= this->history && prob != 0)
+              valid = true;
           }
-        }
 
-        for(unsigned int t = history; t < history + steps; ++t) {
-          if(transition.nonterminals(t - 1)) {
-            transitions.set(&transition, t, idx - history + 1 + t);
-          } else {
-            blank_trans.set(&transition, t, 0);
+          idxs[i] = idx;
+          probs[i] = prob;
+
+          ////_get_transition
+          TransitionReference transition = TransitionReference(this->history + this->steps);
+          this->transitions.set(&transition, this->history - 1, idx);
+
+          for(signed int t = this->history - 2; t >= 0; --t) {
+            if(transition.timesteps(t + 1) != 0) {
+              this->transitions.set(&transition, t, idx - this->history + 1 + t);
+            } else {
+              blank_trans.set(&transition, t, 0);
+            }
           }
-        }
-        ////
 
-        for(unsigned int t = 0; t < history; t++) {
-          states[i * history + t] = transition._states[t];
-          next_states[i * history + t] = transition._states[steps + t];
-        }
+          for(unsigned int t = this->history; t < this->history + this->steps; ++t) {
+            if(transition.nonterminals(t - 1)) {
+              this->transitions.set(&transition, t, idx - this->history + 1 + t);
+            } else {
+              blank_trans.set(&transition, t, 0);
+            }
+          }
+          ////
 
-        float sum = 0;
-        for(unsigned int k = 0; k < steps; ++k)
-          sum += std::pow(discount, k) * transition.rewards(history + k - 1);
+          for(unsigned int t = 0; t < this->history; t++) {
+            states[i * this->history + t] = transition._states[t];
+            next_states[i * this->history + t] = transition._states[this->steps + t];
+          }
 
-        R[i] = sum;
+          float sum = 0;
+          for(unsigned int k = 0; k < this->steps; ++k)
+            sum += std::pow(this->discount, k) * transition.rewards(this->history + k - 1);
 
-        for(unsigned int t = 0; t < history + steps; ++t)
-          actions[i * (history + steps) + t] = transition.actions(t);
+          actions[i] = transition.actions(this->history - 1);
+          R[i] = sum;
+          nonterminals[i] = transition.nonterminals(this->history + this->steps - 1);
+          //
+        }, i);
+      }
 
-        nonterminals[i] = transition.nonterminals(history + steps - 1);
-        //
+      while(pool.n_idle() != 4) {
+        usleep(10);
       }
 
       at::Tensor weights = torch::empty({batch_size}, torch::kFloat32);
       at::Tensor t_idxs = torch::empty({batch_size}, torch::kInt32);
       at::Tensor t_states = torch::empty({batch_size * history, 84, 84}, torch::kUInt8);
-      at::Tensor t_actions = torch::empty({batch_size * (history + steps)}, torch::kInt32);
+      at::Tensor t_actions = torch::empty({batch_size * (history + steps)}, torch::kInt64);
       at::Tensor t_R = torch::empty({batch_size}, torch::kFloat32);      
       at::Tensor t_next_states = torch::empty({batch_size * history, 84, 84}, torch::kUInt8);
       at::Tensor t_nonterminals = torch::empty({batch_size}, torch::kUInt8);
 
-      std::copy_n(probs.data(), batch_size, weights.data<float>());
-      std::copy_n(idxs.data(), batch_size, t_idxs.data<int>());
-      std::copy_n(actions.data(), batch_size * (history + steps), t_actions.data<int>());
-      std::copy_n(R.data(), batch_size, t_R.data<float>());
-      std::copy_n(nonterminals.data(), batch_size, t_nonterminals.data<uint8_t>());
+      pool.push([&](int id){ 
+        std::copy_n(probs.data(), batch_size, weights.data<float>()); 
+        weights
+          .div_((float)p_total)
+          .mul_((float)(segtree.full() ? capacity : transitions.idx))
+          .pow_(-priority_weight)
+          .div_(at::max(weights))
+          .to(device)
+        ;
+      }); 
+      
+      pool.push([&](int id){ 
+        std::copy_n(idxs.data(), batch_size, t_idxs.data<int>()); 
+      }); 
+      
+      pool.push([&](int id){ 
+        std::copy_n(actions.data(), batch_size, t_actions.data<long>()); 
+      }); 
+      
+      pool.push([&](int id){ 
+        std::copy_n(R.data(), batch_size, t_R.data<float>()); 
+      }); 
+      
+      pool.push([&](int id){ 
+        std::copy_n(nonterminals.data(), batch_size, t_nonterminals.data<uint8_t>());
+        t_nonterminals = t_nonterminals.view({batch_size, 1}).to(torch::kFloat32);        
+      }); 
 
-      for(unsigned int i = 0; i < batch_size * history; ++i) {
-        t_states[i] = *states[i];
-        t_next_states[i] = *next_states[i];
+      pool.push([&](int id){ 
+        for(unsigned int i = 0; i < batch_size * history; ++i) {
+          t_states[i] = *states[i];
+        }
+        t_states = t_states.view({batch_size, history, 84, 84}).to(torch::kFloat32);
+      }); 
+
+      pool.push([&](int id){ 
+        for(unsigned int i = 0; i < batch_size * history; ++i) {
+          t_next_states[i] = *next_states[i];
+        }
+        t_next_states = t_next_states.view({batch_size, history, 84, 84}).to(torch::kFloat32);
+      }); 
+
+      while(pool.n_idle() != 4) {
+        usleep(10);
       }
-
-      weights
-        .div_((float)p_total)
-        .mul_((float)(segtree.full() ? capacity : transitions.idx))
-        .pow_(-priority_weight)
-        .div_(at::max(weights))
-        .to(device)
-      ;
+      
 #ifndef CPP_ONLY
       return py::make_tuple(t_idxs, t_states, t_actions, t_R, t_next_states, t_nonterminals, weights);
 #else
