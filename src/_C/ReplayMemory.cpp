@@ -194,7 +194,8 @@ class ReplayMemory {
       assert(history > 2);
 #endif
 
-      ctpl::thread_pool pool(4);
+      const unsigned int thread_num = 2;
+      ctpl::thread_pool pool(thread_num);
       unsigned int p_total = segtree.total();
       unsigned int segment = p_total / batch_size;
       Rnd rnd = Rnd();
@@ -265,7 +266,7 @@ class ReplayMemory {
         }, i);
       }
 
-      while(pool.n_idle() != 4) {
+      while(pool.n_idle() != thread_num) {
         usleep(10);
       }
 
@@ -284,9 +285,8 @@ class ReplayMemory {
           .div_((float)p_total)
           .mul_((float)(segtree.full() ? capacity : transitions.idx))
           .pow_(-priority_weight)
-          .div_(at::max(weights))
-          .to(device)
-        ;
+          .div_(at::max(weights));
+        weights = weights.to(device);
       }); 
       
       pool.push([&](int id){
@@ -297,17 +297,19 @@ class ReplayMemory {
       pool.push([&](int id){ 
         t_actions = torch::empty({batch_size}, torch::kInt64);
         std::copy_n(actions.data(), batch_size, t_actions.data<long>()); 
+        t_actions = t_actions.to(device);
       }); 
       
       pool.push([&](int id){ 
         t_R = torch::empty({batch_size}, torch::kFloat32); 
         std::copy_n(R.data(), batch_size, t_R.data<float>()); 
+        t_R = t_R.to(device);
       }); 
       
       pool.push([&](int id){ 
         t_nonterminals = torch::empty({batch_size}, torch::kUInt8);
         std::copy_n(nonterminals.data(), batch_size, t_nonterminals.data<uint8_t>());
-        t_nonterminals = t_nonterminals.view({batch_size, 1}).to(torch::kFloat32);        
+        t_nonterminals = t_nonterminals.view({batch_size, 1}).to(torch::kFloat32).to(device);        
       }); 
    
       t_states = torch::empty({batch_size * history, 84, 84}, torch::kUInt8);
@@ -320,10 +322,10 @@ class ReplayMemory {
         }, i);
       }
       
-      t_states = t_states.view({batch_size, history, 84, 84}).to(torch::kFloat32);
-      t_next_states = t_next_states.view({batch_size, history, 84, 84}).to(torch::kFloat32);
+      t_states = t_states.view({batch_size, history, 84, 84}).to(torch::kFloat32).to(device);
+      t_next_states = t_next_states.view({batch_size, history, 84, 84}).to(torch::kFloat32).to(device);
 
-      while(pool.n_idle() != 4) {
+      while(pool.n_idle() != thread_num) {
         usleep(10);
       }
       
