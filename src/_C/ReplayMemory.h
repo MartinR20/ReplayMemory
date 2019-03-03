@@ -7,18 +7,6 @@
 #include <unistd.h>
 #include <functional>
 
-class Rnd {
-  private:
-    std::mt19937 gen; //Standard mersenne_twister_engine seeded with std::random_device
-
-  public:
-    Rnd() : gen((std::random_device())()) {}
-  
-    int sample(int lower, int upper) {
-      return std::uniform_int_distribution<>(lower, upper)(gen);
-    }
-};
-
 struct TransitionReference {
   unsigned int** _timesteps;
   at::Tensor** _states;
@@ -194,9 +182,9 @@ class ReplayMemory {
       assert(history > 2);
 #endif
 
-      unsigned int p_total = segtree.total();
-      unsigned int segment = p_total / batch_size;
-      Rnd rnd = Rnd();
+      float p_total = segtree.total();
+      float segment = p_total / batch_size;
+      utils::Rnd rnd = utils::Rnd();
 
       std::vector<float> probs(batch_size);
       std::vector<unsigned int> idxs(batch_size);
@@ -208,18 +196,20 @@ class ReplayMemory {
 
       for(unsigned int i = 0; i < batch_size; ++i) {
         //_get_sample_from_segment
-        unsigned int sample;
+        float sample;
         unsigned int idx;
         float prob;
         
         bool valid = false;
 
+        // in this loop there is a bug that causes it to get an infinite loop
+        // TODO: find bug
         while(!valid) {
           sample = rnd.sample(i * segment, (i + 1) * segment);
           idx = this->segtree.find(sample);
           prob = this->segtree.get(idx);
 
-          if( (this->segtree.idx - idx) % this->capacity > this->steps && (idx - this->segtree.idx) % this->capacity >= this->history && prob != 0)
+          if((this->segtree.idx - idx) % this->capacity > this->steps && (idx - this->segtree.idx) % this->capacity >= this->history && prob != 0) 
             valid = true;
         }
 

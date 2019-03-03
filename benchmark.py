@@ -44,7 +44,7 @@ def sample_bench(mem, batch_size, its):
 
 size = 10000
 batch_size = 32
-samples = 50
+samples = 100
 
 c_mem = timeit(c_bench, (size,))
 baseline_mem = timeit(baseline_bench, (size,))

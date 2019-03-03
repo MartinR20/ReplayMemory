@@ -14,8 +14,8 @@ namespace utils {
     public:
       Rnd() : gen((std::random_device())()) {}
         
-      int sample(int lower, int upper) {
-        return std::uniform_int_distribution<>(lower, upper)(gen);
+      float sample(float lower, float upper) {
+        return std::uniform_real_distribution<>(lower, upper)(gen);
       }
   };
 };

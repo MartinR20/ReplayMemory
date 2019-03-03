@@ -1,7 +1,7 @@
 // Copyright 2019 Reichholf Martin
 #define CPP_ONLY
 
-#include "ReplayMemory.h"
+#include "ReplayMemory.cpp"
 #include <torch/torch.h>
 #include <chrono>
 
