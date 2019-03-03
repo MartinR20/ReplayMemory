@@ -1,4 +1,5 @@
 import torch
+from torch.autograd import Variable
 import ReplayMemory._C as _C
 from baseline import ReplayMemory
 import time
@@ -39,6 +40,7 @@ def baseline_bench(size):
 def sample_bench(mem, batch_size, its):
     for x in range(its):
         mem.sample(batch_size)
+        mem.update_priorities(torch.arange(batch_size, dtype=torch.int32), (torch.rand(batch_size) * 50))
 
 size = 10000
 batch_size = 32

@@ -38,19 +38,19 @@ int main(int argc, char *argv[]) {
 
     if(argc > 1 && std::string(argv[1]) == std::string("verbose")) {
       std::cout << "---------------------------------------- idx ----------------------------------------\n";
-      std::cout << std::get<0>(sample) << '\n';
+      std::cout << sample[0] << '\n';
       std::cout << "---------------------------------------- state ----------------------------------------\n";
-      std::cout << std::get<1>(sample)[0][0] << '\n';
+      std::cout << sample[1][0][0] << '\n';
       std::cout << "---------------------------------------- action ----------------------------------------\n";
-      std::cout << std::get<2>(sample) << '\n';
+      std::cout << sample[2] << '\n';
       std::cout << "---------------------------------------- R ----------------------------------------\n";
-      std::cout << std::get<3>(sample) << '\n';
+      std::cout << sample[3] << '\n';
       std::cout << "---------------------------------------- next_state ----------------------------------------\n";
-      std::cout << std::get<4>(sample)[0][0] << '\n';
+      std::cout << sample[4][0][0] << '\n';
       std::cout << "---------------------------------------- nonterminal ----------------------------------------\n";
-      std::cout << std::get<5>(sample) << '\n';
+      std::cout << sample[5] << '\n';
       std::cout << "---------------------------------------- weights ----------------------------------------\n";
-      std::cout << std::get<6>(sample) << '\n';
+      std::cout << sample[6] << '\n';
     }
 
     exit(0);
